@@ -1,16 +1,13 @@
 ﻿using Newtonsoft.Json;
 
-namespace OpenTelemetry.Exporter.CloudWatchEmf.Demo.Model;
+namespace OpenTelemetry.Exporter.CloudWatchEmf.Model;
 
 /// <summary>
 /// The directives in the Metadata.
 /// This specifies for CloudWatch how to parse and create metrics from the log message.
 /// </summary>
-[JsonObject(MemberSerialization = MemberSerialization.OptIn)]
 public class MetricDirective
 {
-    private static readonly IEnumerable<IEnumerable<string>> _defaultEmptyDimensionSetArray = new string[][] { Array.Empty<string>() };
-
     public MetricDirective()
     {
         //Namespace = Constants.DEFAULT_NAMESPACE;
@@ -21,28 +18,14 @@ public class MetricDirective
     /// <summary>
     ///  A string representing the CloudWatch namespace for the metric.
     /// </summary>
-    [JsonProperty("Namespace")]
     public string Namespace { get; set; } = "DefaultCustomNamespace";
-
-    public List<DimensionSet> DimensionSets { get; }
 
     /// <summary>
     /// A DimensionSet array.
     /// A DimensionSet is an array of strings containing the dimension keys that will be applied to all metrics in the document.
     /// Every DimensionSet used creates a new metric in CloudWatch.
     /// </summary>
-    [JsonProperty("Dimensions")]
-    public IEnumerable<IEnumerable<string>> DimensionSetKeys
-    {
-        get
-        {
-            if (DimensionSets.Count == 0)
-            {
-                return _defaultEmptyDimensionSetArray;
-            }
-            return DimensionSets.Select(x => x.DimensionKeys);
-        }
-    }
+    public List<DimensionSet> DimensionSets { get; }
 
     public void AddDimension(string key, string value)
     {
@@ -56,7 +39,6 @@ public class MetricDirective
         }
     }
 
-    [JsonProperty("Metrics")]
     public List<MetricDefinition> Metrics { get; }
 
     public void PutMetric(string key, double value) => PutMetric(key, value, Unit.NONE);
@@ -74,17 +56,43 @@ public class MetricDirective
         }
     }
 
-    public MetricDirective DeepCloneWithNewMetrics(List<MetricDefinition> metrics)
+    public void WriteJson(JsonTextWriter writer)
     {
-        var clone = new MetricDirective
+        writer.WriteStartObject();
+
+        writer.WritePropertyName("Namespace");
+        writer.WriteValue(Namespace);
+
+        writer.WritePropertyName("Dimensions");
+        writer.WriteStartArray();
+        foreach (var dimensionSet in DimensionSets)
         {
-            Namespace = Namespace
-        };
-        clone.DimensionSets.AddRange(DimensionSets);
-        foreach (var metric in metrics)
-        {
-            clone.Metrics.Add(metric);
+            writer.WriteStartArray();
+            foreach (var dimension in dimensionSet.DimensionKeys)
+            {
+                writer.WriteValue(dimension);
+            }
+            writer.WriteEndArray();
         }
-        return clone;
+        writer.WriteEndArray();
+
+        writer.WritePropertyName("Metrics");
+        writer.WriteStartArray();
+        foreach (var metric in Metrics)
+        {
+            writer.WriteStartObject();
+
+            writer.WritePropertyName("Name");
+            writer.WriteValue(metric.Name);
+
+            // TODO
+            //writer.WritePropertyName("Unit");
+            //writer.WriteValue(Unit);
+
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+
+        writer.WriteEndObject();
     }
 }

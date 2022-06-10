@@ -1,8 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿namespace OpenTelemetry.Exporter.CloudWatchEmf.Model;
 
-namespace OpenTelemetry.Exporter.CloudWatchEmf.Demo.Model;
-
-[JsonObject(MemberSerialization = MemberSerialization.OptIn)]
 public class MetricDefinition
 {
     public MetricDefinition(string name) : this(name, Unit.NONE, new List<double>())
@@ -29,13 +26,11 @@ public class MetricDefinition
         Values.Add(value);
     }
 
-    [JsonProperty("Name")]
     public string Name { get; set; }
 
     public List<double> Values { get; }
 
     public StatisticSet? StatisticSet { get; set; }
 
-    [JsonProperty("Unit")]
     public Unit Unit { get; set; }
 }

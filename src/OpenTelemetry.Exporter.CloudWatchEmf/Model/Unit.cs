@@ -1,10 +1,7 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
-using System.Runtime.Serialization;
+﻿using System.Runtime.Serialization;
 
-namespace OpenTelemetry.Exporter.CloudWatchEmf.Demo.Model;
+namespace OpenTelemetry.Exporter.CloudWatchEmf.Model;
 
-[JsonConverter(typeof(StringEnumConverter))]
 public enum Unit
 {
     [EnumMember(Value = "None")]

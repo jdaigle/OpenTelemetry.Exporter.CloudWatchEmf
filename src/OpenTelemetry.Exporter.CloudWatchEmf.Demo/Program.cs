@@ -3,7 +3,7 @@ using Amazon.CloudWatchLogs.Model;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using OpenTelemetry.Exporter.CloudWatchEmf.Demo.Model;
+using OpenTelemetry.Exporter.CloudWatchEmf.Model;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using System.Diagnostics.CodeAnalysis;
@@ -216,20 +216,20 @@ public class Program
                                 throw new NotImplementedException();
                         }
 
+                        var message = rootNode.ToJson();
                         if (_logEventBatch is null)
                         {
-                            SetUpLogStreamAsync().GetAwaiter().GetResult(); // cannot await
+                            //SetUpLogStreamAsync().GetAwaiter().GetResult(); // cannot await
                         }
                         if (_logEventBatch is null)
                         {
                             throw new System.InvalidOperationException();
                         }
-                        var message = rootNode.Serialize();
-                        _logEventBatch.AddMessage(new InputLogEvent { Message = rootNode.Serialize(), Timestamp = DateTime.UtcNow });
+                        _logEventBatch.AddMessage(new InputLogEvent { Message = message, Timestamp = DateTime.UtcNow });
                         var messageSize = Encoding.Unicode.GetMaxByteCount(message.Length);
                         Console.WriteLine(message + $"({messageSize} bytes)");
                         // flush
-                        SendMessagesAsync().GetAwaiter().GetResult(); // cannot await
+                        //SendMessagesAsync().GetAwaiter().GetResult(); // cannot await
                     }
                 }
             }
