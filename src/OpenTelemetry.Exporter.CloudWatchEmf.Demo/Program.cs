@@ -108,7 +108,6 @@ public class Program
     public class TestMetricExporter : BaseExporter<Metric>
     {
         private IAmazonCloudWatchLogs _client = new AmazonCloudWatchLogsClient();
-        private LogEventBatch? _logEventBatch;
 
         public TestMetricExporter()
         {
@@ -244,8 +243,8 @@ public class Program
             }
             try
             {
-                //Make sure the log events are in the right order.
-                _logEventBatch._request.LogEvents.Sort((ev1, ev2) => ev1.Timestamp.CompareTo(ev2.Timestamp));    
+                // Make sure the log events are in the right order.
+                _logEventBatch._request.LogEvents.Sort((ev1, ev2) => ev1.Timestamp.CompareTo(ev2.Timestamp));
                 var response = await _client.PutLogEventsAsync(_logEventBatch._request, cancellationToken).ConfigureAwait(false);
                 _logEventBatch.Reset(response.NextSequenceToken);
                 //_requestCount = 5;
@@ -326,72 +325,6 @@ public class Program
             return currentStreamName;
         }
 
-        private class LogEventBatch
-        {
-            public TimeSpan TimeIntervalBetweenPushes { get; private set; }
-            public int MaxBatchSize { get; private set; }
-
-            public bool ShouldSendRequest(int maxQueuedEvents)
-            {
-                if (_request.LogEvents.Count == 0)
-                    return false;
-
-                if (_nextPushTime < DateTime.UtcNow)
-                    return true;
-
-                if (maxQueuedEvents <= _request.LogEvents.Count)
-                    return true;
-
-                return false;
-            }
-
-            int _totalMessageSize { get; set; }
-            DateTime _nextPushTime;
-            public PutLogEventsRequest _request = new PutLogEventsRequest();
-            public LogEventBatch(string logGroupName, string streamName, int timeIntervalBetweenPushes, int maxBatchSize)
-            {
-                _request.LogGroupName = logGroupName;
-                _request.LogStreamName = streamName;
-                TimeIntervalBetweenPushes = TimeSpan.FromSeconds(timeIntervalBetweenPushes);
-                MaxBatchSize = maxBatchSize;
-                Reset(null);
-            }
-
-            public LogEventBatch()
-            {
-            }
-
-            public int CurrentBatchMessageCount
-            {
-                get { return this._request.LogEvents.Count; }
-            }
-
-            public bool IsEmpty => _request.LogEvents.Count == 0;
-
-            public bool IsSizeConstraintViolated(string message)
-            {
-                Encoding unicode = Encoding.Unicode;
-                int prospectiveLength = _totalMessageSize + unicode.GetMaxByteCount(message.Length);
-                if (MaxBatchSize < prospectiveLength)
-                    return true;
-
-                return false;
-            }
-
-            public void AddMessage(InputLogEvent ev)
-            {
-                Encoding unicode = Encoding.Unicode;
-                _totalMessageSize += unicode.GetMaxByteCount(ev.Message.Length);
-                _request.LogEvents.Add(ev);
-            }
-
-            public void Reset(string? SeqToken)
-            {
-                _request.LogEvents.Clear();
-                _totalMessageSize = 0;
-                _request.SequenceToken = SeqToken;
-                _nextPushTime = DateTime.UtcNow.Add(TimeIntervalBetweenPushes);
-            }
-        }
+        
     }
 }
