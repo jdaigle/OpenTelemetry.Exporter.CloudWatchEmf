@@ -1,6 +1,6 @@
 ﻿namespace OpenTelemetry.Exporter.CloudWatchEmf.Model;
 
-public class DimensionSet
+internal class DimensionSet
 {
     /// <summary>
     /// Creates a DimensionSet with one Dimension with the specified key-value pair.

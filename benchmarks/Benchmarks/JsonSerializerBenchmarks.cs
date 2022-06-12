@@ -5,12 +5,12 @@ namespace Benchmarks;
 
 public class JsonSerializerBenchmarks
 {
-    private RootNode _rootNode;
+    private CloudWatchRootNode _rootNode;
 
     [GlobalSetup]
     public void GlobalSetup()
     {
-        _rootNode = new RootNode();
+        _rootNode = new CloudWatchRootNode();
         _rootNode.AddDimension("Dimension1", "Value1");
         _rootNode.AddDimension("Dimension2", "Value2");
         _rootNode.AddDimension("Dimension3", "Value3");

@@ -6,7 +6,7 @@ namespace OpenTelemetry.Exporter.CloudWatchEmf.Model;
 /// Represents the CloudWatch Metrics Metadata appended to the CloudWatch log
 /// and used by CloudWatch to parse metrics out of the log's properties.
 /// </summary>
-public class Metadata
+internal class Metadata
 {
     public Metadata()
     {

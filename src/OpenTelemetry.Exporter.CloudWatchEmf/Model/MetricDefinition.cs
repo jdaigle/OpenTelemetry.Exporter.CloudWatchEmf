@@ -1,6 +1,6 @@
 ﻿namespace OpenTelemetry.Exporter.CloudWatchEmf.Model;
 
-public class MetricDefinition
+internal class MetricDefinition
 {
     public MetricDefinition(string name) : this(name, Unit.NONE, new List<double>())
     {

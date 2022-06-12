@@ -6,7 +6,7 @@ namespace OpenTelemetry.Exporter.CloudWatchEmf.Model;
 /// The directives in the Metadata.
 /// This specifies for CloudWatch how to parse and create metrics from the log message.
 /// </summary>
-public class MetricDirective
+internal class MetricDirective
 {
     public MetricDirective()
     {

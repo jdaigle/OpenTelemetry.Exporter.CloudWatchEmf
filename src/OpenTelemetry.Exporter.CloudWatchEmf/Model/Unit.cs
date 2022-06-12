@@ -2,7 +2,7 @@
 
 namespace OpenTelemetry.Exporter.CloudWatchEmf.Model;
 
-public enum Unit
+internal enum Unit
 {
     [EnumMember(Value = "None")]
     NONE,

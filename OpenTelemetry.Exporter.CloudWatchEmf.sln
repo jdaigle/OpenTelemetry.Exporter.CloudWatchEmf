@@ -5,9 +5,18 @@ VisualStudioVersion = 17.2.32526.322
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OpenTelemetry.Exporter.CloudWatchEmf.Demo", "src\OpenTelemetry.Exporter.CloudWatchEmf.Demo\OpenTelemetry.Exporter.CloudWatchEmf.Demo.csproj", "{B2EAB8CF-27F3-4C49-81A7-CC7C4BA29DEF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Benchmarks", "benchmarks\Benchmarks\Benchmarks.csproj", "{91F31CEB-CFA1-4CC0-B313-D1D7E23B9E82}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Benchmarks", "benchmarks\Benchmarks\Benchmarks.csproj", "{91F31CEB-CFA1-4CC0-B313-D1D7E23B9E82}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenTelemetry.Exporter.CloudWatchEmf", "src\OpenTelemetry.Exporter.CloudWatchEmf\OpenTelemetry.Exporter.CloudWatchEmf.csproj", "{D0A1C417-FC7C-4407-B282-3C86B60E6E31}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OpenTelemetry.Exporter.CloudWatchEmf", "src\OpenTelemetry.Exporter.CloudWatchEmf\OpenTelemetry.Exporter.CloudWatchEmf.csproj", "{D0A1C417-FC7C-4407-B282-3C86B60E6E31}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{47F290C3-3D5B-4C4B-93E2-D606B631DE6E}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		.gitignore = .gitignore
+		Directory.Build.props = Directory.Build.props
+		LICENSE = LICENSE
+		version.json = version.json
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

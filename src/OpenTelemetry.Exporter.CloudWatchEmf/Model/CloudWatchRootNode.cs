@@ -26,7 +26,7 @@ EXAMPLE OF DESIRED SERIALIZATION OUTPUT:
 /// <remarks>
 /// https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html
 /// </remarks>
-public class RootNode
+internal class CloudWatchRootNode
 {
     public Metadata AwsMetadata { get; private set; } = new Metadata();
 

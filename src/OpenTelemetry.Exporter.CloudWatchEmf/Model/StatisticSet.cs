@@ -6,7 +6,7 @@ namespace OpenTelemetry.Exporter.CloudWatchEmf.Model
     /// Represents aggregated metric values.
     /// This appears to be supported with the Embedded Metric Format, although not documented.
     /// </summary>
-    public class StatisticSet
+    internal class StatisticSet
     {
         public double Sum { get; set; }
 

@@ -1,59 +1,60 @@
-﻿using Amazon.CloudWatchLogs;
+﻿using System.Text;
+using Amazon.CloudWatchLogs;
 using Amazon.CloudWatchLogs.Model;
 using Amazon.Runtime;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using OpenTelemetry.Exporter.CloudWatchEmf.Model;
 
 namespace OpenTelemetry.Exporter.CloudWatchEmf;
 
-public class CloudWatchPusherOptions
-{
-    public string LogGroup = "/metrics/default";
-
-    /// <summary>
-    /// Internal MonitorSleepTime property. This specifies the timespan after which the Monitor wakes up.
-    /// MonitorSleepTime  dictates the timespan after which the Monitor checks the size and time constarint on the batch log event and the existing in-memory buffer for new messages.
-    /// <para>
-    /// The value is 500 Milliseconds.
-    /// </para>
-    /// </summary>
-    public TimeSpan MonitorSleepTime = TimeSpan.FromMilliseconds(500);
-}
-
-public class CloudWatchPusher /*: IHostedService*/
+/// <summary>
+/// Pushes metrics to CloudWatch Logs using the Embedded Metrics Format.
+/// </summary>
+public class CloudWatchPusher
 {
     private static readonly Encoding _unicodeEncoding = Encoding.Unicode;
+    private static readonly int _maxMessageSizeInBytes = 1024 * 1024; // 1 MB
 
-    private readonly IOptions<CloudWatchPusherOptions> _options;
-    private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+    private readonly CloudWatchPusherOptions _options;
     private readonly IAmazonCloudWatchLogs _client = new AmazonCloudWatchLogsClient();
 
-
-    private CancellationTokenSource? _cancelMonitorSource;
-
-    private readonly PutLogEventsRequest _putLogEventsRequest = new PutLogEventsRequest();
     private int _totalMessageSize = 0;
+    private readonly PutLogEventsRequest _putLogEventsRequest = new PutLogEventsRequest();
 
-    public CloudWatchPusher(IOptions<CloudWatchPusherOptions> options)
+    /// <summary>
+    /// Create a new instance of <see cref="CloudWatchPusher"/>.
+    /// </summary>
+    /// <param name="options">The <see cref="CloudWatchPusherOptions"/> for this instance.</param>
+    public CloudWatchPusher(CloudWatchPusherOptions options)
     {
         _options = options;
-        _putLogEventsRequest.LogGroupName = _options.Value.LogGroup;
-        ((AmazonCloudWatchLogsClient)this._client).BeforeRequestEvent += ServiceClientBeforeRequestEvent;
+        _putLogEventsRequest.LogGroupName = _options.LogGroup;
+        ((AmazonCloudWatchLogsClient)_client).BeforeRequestEvent += ServiceClientBeforeRequestEvent;
     }
 
-    public void AddMessage(string rawMessage)
+    /// <summary>
+    /// Sends a batch of EMF log messages to CloudWatch
+    /// </summary>
+    /// <param name="batch">The batch of EMF log messages to send to CloudWatch.</param>
+    internal void PushMetricsToCloudWatch(in IList<CloudWatchRootNode> batch)
     {
-        const int MaxMessageSize = 1024 * 1024;
-        var prospectiveLength = _totalMessageSize + _unicodeEncoding.GetMaxByteCount(rawMessage.Length);
-        if (prospectiveLength > MaxMessageSize)
-        {
-            // flush now
+        _totalMessageSize = 0;
+        _putLogEventsRequest.LogEvents.Clear();
 
+        foreach (var item in batch)
+        {
+            AddMessage(item.ToJson());
+        }
+
+        Flush();
+    }
+
+    private void AddMessage(string rawMessage)
+    {
+        var prospectiveLengthInBytes = _totalMessageSize + _unicodeEncoding.GetMaxByteCount(rawMessage.Length);
+        if (prospectiveLengthInBytes > _maxMessageSizeInBytes)
+        {
+            // Flush current batch
+            Flush();
         }
 
         _totalMessageSize += _unicodeEncoding.GetMaxByteCount(rawMessage.Length);
@@ -64,44 +65,24 @@ public class CloudWatchPusher /*: IHostedService*/
         });
     }
 
-    public void Flush()
+    private void Flush()
     {
+        if (_putLogEventsRequest.LogEvents.Count > 0)
+        {
+            // Make sure the log events are in the right order.
+            _putLogEventsRequest.LogEvents.Sort((ev1, ev2) => ev1.Timestamp.CompareTo(ev2.Timestamp));
 
+            using var cancellationTokenSource = new CancellationTokenSource(_options.SendTimeout);
+
+            // Blocking is required since the exporter cannot be async. But we can timeout/cancel.
+            SendMessagesAsync(cancellationTokenSource.Token).GetAwaiter().GetResult();
+        }
+
+        _totalMessageSize = 0;
+        _putLogEventsRequest.LogEvents.Clear();
     }
 
-    //public Task StartAsync(CancellationToken cancellationToken)
-    //{
-    //    _cancelMonitorSource = new CancellationTokenSource();
-    //    Task.Run(async () =>
-    //    {
-    //        await Monitor(_cancelMonitorSource.Token);
-    //    });
-    //    return Task.CompletedTask;
-    //}
-
-    //private async Task Monitor(CancellationToken token)
-    //{
-    //    while (!token.IsCancellationRequested)
-    //    {
-    //        await Task.Delay(_options.Value.MonitorSleepTime);
-    //    }
-    //}
-
-    //public Task StopAsync(CancellationToken cancellationToken)
-    //{
-    //    try
-    //    {
-    //        Flush();
-    //        _cancelMonitorSource?.Cancel();
-    //    }
-    //    catch (Exception)
-    //    {
-    //        // LogLibraryServiceError(ex);
-    //    }
-    //    return Task.CompletedTask;
-    //}
-
-    private void ServiceClientBeforeRequestEvent(object sender, Amazon.Runtime.RequestEventArgs e)
+    private void ServiceClientBeforeRequestEvent(object sender, RequestEventArgs e)
     {
         if (e is WebServiceRequestEventArgs args)
         {
@@ -109,9 +90,9 @@ public class CloudWatchPusher /*: IHostedService*/
         }
     }
 
-    private async Task SetUpLogStreamAsync(CancellationToken cancellationToken = default)
+    private async Task SetUpLogStreamAsync(CancellationToken cancellationToken)
     {
-        var logGroupName = _options.Value.LogGroup;
+        var logGroupName = _options.LogGroup;
 
         var logGroupResponse = await _client.DescribeLogGroupsAsync(new DescribeLogGroupsRequest
         {
@@ -150,24 +131,20 @@ public class CloudWatchPusher /*: IHostedService*/
         _putLogEventsRequest.SequenceToken = null;
     }
 
-    private async Task SendMessagesAsync(CancellationToken cancellationToken = default)
+    private async Task SendMessagesAsync(CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(_putLogEventsRequest.LogStreamName))
         {
             await SetUpLogStreamAsync(cancellationToken).ConfigureAwait(false);
         }
         // Loop to handle exceptions
-        while (_putLogEventsRequest.LogEvents.Count > 0)
+        while (!cancellationToken.IsCancellationRequested && _putLogEventsRequest.LogEvents.Count > 0)
         {
-            // Ensures only a single thread is sending at a time.
-            await _sendLock.WaitAsync(cancellationToken);
             try
             {
-                // Make sure the log events are in the right order.
-                _putLogEventsRequest.LogEvents.Sort((ev1, ev2) => ev1.Timestamp.CompareTo(ev2.Timestamp));
                 var response = await _client.PutLogEventsAsync(_putLogEventsRequest, cancellationToken).ConfigureAwait(false);
-                _putLogEventsRequest.LogEvents.Clear();
                 _putLogEventsRequest.SequenceToken = response.NextSequenceToken;
+                _putLogEventsRequest.LogEvents.Clear();
                 _totalMessageSize = 0;
             }
             catch (InvalidSequenceTokenException ex)
@@ -187,10 +164,6 @@ public class CloudWatchPusher /*: IHostedService*/
                 LogError(ex);
                 await Task.Delay(Math.Max(100, DateTime.UtcNow.Second * 10), cancellationToken); // backoff a bit
             }
-            finally
-            {
-                _sendLock.Release();
-            }
         }
     }
 
@@ -205,75 +178,4 @@ public class CloudWatchPusher /*: IHostedService*/
     }
 
     private static bool IsSuccessStatusCode(AmazonWebServiceResponse serviceResponse) => (int)serviceResponse.HttpStatusCode >= 200 && (int)serviceResponse.HttpStatusCode <= 299;
-
-    //private class LogEventBatch
-    //{
-    //    private static readonly Encoding _unicodeEncoding = Encoding.Unicode;
-
-
-    //    public LogEventBatch(string logGroupName, string streamName, TimeSpan timeIntervalBetweenPushes, int maxBatchSize)
-    //    {
-    //        Request.LogGroupName = logGroupName;
-    //        Request.LogStreamName = streamName;
-    //        TimeIntervalBetweenPushes = timeIntervalBetweenPushes;
-    //        MaxBatchSize = maxBatchSize;
-    //        Reset(nextSequenceToken: null);
-    //    }
-
-    //    public LogEventBatch()
-    //    {
-    //    }
-
-    //    public TimeSpan TimeIntervalBetweenPushes { get; }
-
-    //    public int MaxBatchSize { get; }
-
-    //    public PutLogEventsRequest Request { get; } = new PutLogEventsRequest();
-
-    //    public int TotalMessageSize { get; private set; }
-
-    //    public DateTime NextPushTime { get; private set; }
-
-    //    public int CurrentBatchMessageCount => Request.LogEvents.Count;
-
-    //    public bool IsEmpty => Request.LogEvents.Count == 0;
-
-    //    public bool ShouldSendRequest(int maxQueuedEvents)
-    //    {
-    //        if (Request.LogEvents.Count == 0)
-    //        {
-    //            return false;
-    //        }
-
-    //        if (NextPushTime <= DateTime.UtcNow)
-    //        {
-    //            return true;
-    //        }
-
-    //        if (maxQueuedEvents <= Request.LogEvents.Count)
-    //            return true;
-
-    //        return false;
-    //    }
-
-    //    public bool IsSizeConstraintViolated(string message)
-    //    {
-    //        var prospectiveLength = TotalMessageSize + _unicodeEncoding.GetMaxByteCount(message.Length);
-    //        return prospectiveLength > MaxBatchSize;
-    //    }
-
-    //    public void AddMessage(InputLogEvent ev)
-    //    {
-    //        TotalMessageSize += _unicodeEncoding.GetMaxByteCount(ev.Message.Length);
-    //        Request.LogEvents.Add(ev);
-    //    }
-
-    //    public void Reset(string? nextSequenceToken)
-    //    {
-    //        Request.LogEvents.Clear();
-    //        TotalMessageSize = 0;
-    //        Request.SequenceToken = nextSequenceToken;
-    //        NextPushTime = DateTime.UtcNow.Add(TimeIntervalBetweenPushes);
-    //    }
-    //}
 }

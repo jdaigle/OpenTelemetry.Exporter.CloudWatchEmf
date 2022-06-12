@@ -1,19 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
     <PropertyGroup>
-        <TargetFramework>net6.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     </PropertyGroup>
-
     <ItemGroup>
-        <PackageReference Include="AWSSDK.CloudWatch" Version="3.7.4.20" />
-        <PackageReference Include="AWSSDK.CloudWatchLogs" Version="3.7.2.62" />
-        <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" Version="3.7.2" />
-        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="6.0.0" />
-        <PackageReference Include="Microsoft.Extensions.Options" Version="6.0.0" />
-        <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+        <InternalsVisibleTo Include="Benchmarks" />
     </ItemGroup>
-
+    <ItemGroup>
+        <PackageReference Include="AWSSDK.CloudWatchLogs" Version="3.7.1.0" />
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+        <PackageReference Include="OpenTelemetry" Version="1.3.0" />
+    </ItemGroup>
 </Project>
