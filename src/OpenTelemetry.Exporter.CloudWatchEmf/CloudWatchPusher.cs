@@ -2,6 +2,7 @@
 using Amazon.CloudWatchLogs;
 using Amazon.CloudWatchLogs.Model;
 using Amazon.Runtime;
+using Microsoft.Extensions.Logging;
 using OpenTelemetry.Exporter.CloudWatchEmf.Model;
 
 namespace OpenTelemetry.Exporter.CloudWatchEmf;
@@ -15,6 +16,7 @@ public class CloudWatchPusher
     private static readonly int _maxMessageSizeInBytes = 1024 * 1024; // 1 MB
 
     private readonly CloudWatchPusherOptions _options;
+    private readonly ILogger _logger;
     private readonly IAmazonCloudWatchLogs _client = new AmazonCloudWatchLogsClient();
 
     private int _totalMessageSize = 0;
@@ -24,9 +26,11 @@ public class CloudWatchPusher
     /// Create a new instance of <see cref="CloudWatchPusher"/>.
     /// </summary>
     /// <param name="options">The <see cref="CloudWatchPusherOptions"/> for this instance.</param>
-    public CloudWatchPusher(CloudWatchPusherOptions options)
+    /// <param name="logger">Logger instance.</param>
+    public CloudWatchPusher(CloudWatchPusherOptions options, ILogger<CloudWatchPusher> logger)
     {
         _options = options;
+        _logger = logger;
         _putLogEventsRequest.LogGroupName = _options.LogGroup;
         ((AmazonCloudWatchLogsClient)_client).BeforeRequestEvent += ServiceClientBeforeRequestEvent;
     }
@@ -100,7 +104,7 @@ public class CloudWatchPusher
         }, cancellationToken).ConfigureAwait(false);
         if (!IsSuccessStatusCode(logGroupResponse))
         {
-            LogError($"DescribeLogGroups {logGroupName} returned status: {logGroupResponse.HttpStatusCode}");
+            _logger.LogError($"DescribeLogGroups {logGroupName} returned status: {logGroupResponse.HttpStatusCode}");
         }
 
         if (!logGroupResponse.LogGroups.Any(x => string.Equals(x.LogGroupName, logGroupName, StringComparison.Ordinal)))
@@ -111,7 +115,7 @@ public class CloudWatchPusher
             }, cancellationToken).ConfigureAwait(false);
             if (!IsSuccessStatusCode(logGroupResponse))
             {
-                LogError($"CreateLogGroup {logGroupName} returned status: {logGroupResponse.HttpStatusCode}");
+                _logger.LogError($"CreateLogGroup {logGroupName} returned status: {logGroupResponse.HttpStatusCode}");
             }
         }
 
@@ -124,7 +128,7 @@ public class CloudWatchPusher
         }, cancellationToken).ConfigureAwait(false);
         if (!IsSuccessStatusCode(logGroupResponse))
         {
-            LogError($"CreateLogStream {logGroupName} returned status: {logGroupResponse.HttpStatusCode}");
+            _logger.LogError($"CreateLogStream {logGroupName} returned status: {logGroupResponse.HttpStatusCode}");
         }
 
         _putLogEventsRequest.LogStreamName = currentStreamName;
@@ -149,32 +153,20 @@ public class CloudWatchPusher
             }
             catch (InvalidSequenceTokenException ex)
             {
-                // In case the NextSequenceToken is invalid for the last sent message, refresh or create new stream.
-                LogError(ex);
+                _logger.LogError(ex, "The NextSequenceToken is invalid based on the last send message. Creating a new log stream.");
                 await SetUpLogStreamAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (ResourceNotFoundException ex)
             {
-                // The specified log stream does not exist. Refresh or create new stream.
-                LogError(ex);
+                _logger.LogError(ex, "The specified log stream does not exist. Creating a new log stream.");
                 await SetUpLogStreamAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                LogError(ex);
+                _logger.LogError(ex, "Unhandled exception calling PutLogEventsAsync");
                 await Task.Delay(Math.Max(100, DateTime.UtcNow.Second * 10), cancellationToken); // backoff a bit
             }
         }
-    }
-
-    private void LogError(string error)
-    {
-        Console.WriteLine(error);
-    }
-
-    private void LogError(Exception ex)
-    {
-        Console.WriteLine(ex.ToString());
     }
 
     private static bool IsSuccessStatusCode(AmazonWebServiceResponse serviceResponse) => (int)serviceResponse.HttpStatusCode >= 200 && (int)serviceResponse.HttpStatusCode <= 299;
