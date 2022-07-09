@@ -1,4 +1,5 @@
-﻿using OpenTelemetry.Exporter.CloudWatchEmf.Model;
+﻿using OpenTelemetry.Exporter.CloudWatchEmf.Implementation;
+using OpenTelemetry.Exporter.CloudWatchEmf.Model;
 using OpenTelemetry.Metrics;
 
 namespace OpenTelemetry.Exporter.CloudWatchEmf;
@@ -48,8 +49,7 @@ public class CloudWatchEmfMetricExporter : BaseExporter<Metric>
             }
             catch (Exception ex)
             {
-                // TODO: logging
-                Console.WriteLine(ex);
+                CloudWatchEmfMetricExporterEventSource.Log.ExceptionCallingPushMetricsToCloudWatch(ex);
                 return ExportResult.Failure;
             }
         }
@@ -57,22 +57,36 @@ public class CloudWatchEmfMetricExporter : BaseExporter<Metric>
         return ExportResult.Success;
     }
 
+    private static readonly char[] _namespaceSeperator = new[] { '.' };
+
     private CloudWatchRootNode BuildCloudWatchEmfNode(Metric metric, MetricPoint point)
     {
         var rootNode = new CloudWatchRootNode();
         rootNode.AwsMetadata.Timestamp = point.EndTime;
-
-        var resource = ParentProvider.GetResource();
-        foreach (var attribute in resource.Attributes)
+        var metricName = metric.Name;
+        var nameParts = metricName.Split(_namespaceSeperator, 2, StringSplitOptions.RemoveEmptyEntries);
+        if (nameParts.Length > 1)
         {
-            if (attribute.Value?.ToString() is string value)
+            rootNode.AwsMetadata.MetricDirective.Namespace = nameParts[0];
+            metricName = nameParts[1];
+        }
+
+        if (_exporterOptions.ResourceAttributesToIncludeAsDimensions is object &&
+            _exporterOptions.ResourceAttributesToIncludeAsDimensions.Length > 0)
+        {
+            var resource = ParentProvider.GetResource();
+            foreach (var attribute in resource.Attributes)
             {
-                // TODO: figure out which resource attributes should be included, and mapped
-                // rootNode.AddDimension(attribute.Key, value);
+                if (_exporterOptions.ResourceAttributesToIncludeAsDimensions.Contains(attribute.Key))
+                {
+                    if (attribute.Value?.ToString() is string value)
+                    {
+                        rootNode.AddDimension(attribute.Key, value);
+                    }
+                }
             }
         }
 
-        // TODO: figure out which Tags should become dimensions?
         foreach (var tag in point.Tags)
         {
             if (tag.Value?.ToString() is string value)
@@ -84,42 +98,30 @@ public class CloudWatchEmfMetricExporter : BaseExporter<Metric>
         switch (metric.MetricType)
         {
             case MetricType.LongSum:
-                rootNode.PutMetric(metric.Name, point.GetSumLong());
+                rootNode.PutMetric(metricName, point.GetSumLong());
                 break;
             case MetricType.DoubleSum:
-                rootNode.PutMetric(metric.Name, point.GetSumDouble());
+                rootNode.PutMetric(metricName, point.GetSumDouble());
                 break;
             case MetricType.LongGauge:
-                rootNode.PutMetric(metric.Name, point.GetGaugeLastValueLong());
+                rootNode.PutMetric(metricName, point.GetGaugeLastValueLong());
                 break;
             case MetricType.DoubleGauge:
-                rootNode.PutMetric(metric.Name, point.GetGaugeLastValueDouble());
+                rootNode.PutMetric(metricName, point.GetGaugeLastValueDouble());
                 break;
             case MetricType.Histogram:
-                var buckets = point.GetHistogramBuckets();
                 var sum = point.GetHistogramSum();
                 var count = point.GetHistogramCount();
-                // TODO: current otel version does not support Min/Max. But we could probably derive that from the min/max bucket for now.
-                // Start with avg for min/max, because the PositivitInfinity bucket can be problematic.
-                var avg = sum / count;
-                var min = avg;
-                var max = avg;
-                foreach (var bucket in buckets)
-                {
-                    if (bucket.BucketCount > 0 && bucket.ExplicitBound != double.PositiveInfinity)
-                    {
-                        min = min == 0 ? bucket.ExplicitBound : Math.Min(bucket.ExplicitBound, min);
-                        max = Math.Max(bucket.ExplicitBound, max);
-                    }
-                }
-                rootNode.AwsMetadata.MetricDirective.Metrics.Add(new MetricDefinition(metric.Name)
+                var avg = count > 0 ? sum / count : 0;
+                rootNode.AwsMetadata.MetricDirective.Metrics.Add(new MetricDefinition(metricName)
                 {
                     StatisticSet = new StatisticSet
                     {
-                        Sum = point.GetHistogramSum(),
-                        Count = point.GetHistogramCount(),
-                        Min = min,
-                        Max = max,
+                        Sum = sum,
+                        Count = count,
+                        // TODO: min/max not yet supported by OpenTelemetry SDK, so just set to the avg
+                        Min = avg,
+                        Max = avg,
                     },
                 });
                 break;

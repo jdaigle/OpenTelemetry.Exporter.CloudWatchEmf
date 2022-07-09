@@ -8,11 +8,13 @@ public class CloudWatchPusherOptions
     /// <summary>
     /// The CloudWatch Log Group to send messages to.
     /// This will be created if it doesn't exist.
+    /// Defaults to "/metrics/default".
     /// </summary>
     public string LogGroup = "/metrics/default";
 
     /// <summary>
-    /// Timeout for Send operations. Defaults to 10 seconds.
+    /// Timeout for Send operations.
+    /// Defaults to 10 seconds.
     /// </summary>
     public TimeSpan SendTimeout { get; set; } = TimeSpan.FromSeconds(10);
 }

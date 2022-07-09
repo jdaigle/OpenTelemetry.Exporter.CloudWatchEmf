@@ -2,7 +2,7 @@
 using Amazon.CloudWatchLogs;
 using Amazon.CloudWatchLogs.Model;
 using Amazon.Runtime;
-using Microsoft.Extensions.Logging;
+using OpenTelemetry.Exporter.CloudWatchEmf.Implementation;
 using OpenTelemetry.Exporter.CloudWatchEmf.Model;
 
 namespace OpenTelemetry.Exporter.CloudWatchEmf;
@@ -16,7 +16,6 @@ public class CloudWatchPusher
     private static readonly int _maxMessageSizeInBytes = 1024 * 1024; // 1 MB
 
     private readonly CloudWatchPusherOptions _options;
-    private readonly ILogger _logger;
     private readonly IAmazonCloudWatchLogs _client = new AmazonCloudWatchLogsClient();
 
     private int _totalMessageSize = 0;
@@ -26,11 +25,9 @@ public class CloudWatchPusher
     /// Create a new instance of <see cref="CloudWatchPusher"/>.
     /// </summary>
     /// <param name="options">The <see cref="CloudWatchPusherOptions"/> for this instance.</param>
-    /// <param name="logger">Logger instance.</param>
-    public CloudWatchPusher(CloudWatchPusherOptions options, ILogger<CloudWatchPusher> logger)
+    public CloudWatchPusher(CloudWatchPusherOptions options)
     {
         _options = options;
-        _logger = logger;
         _putLogEventsRequest.LogGroupName = _options.LogGroup;
         ((AmazonCloudWatchLogsClient)_client).BeforeRequestEvent += ServiceClientBeforeRequestEvent;
     }
@@ -94,47 +91,6 @@ public class CloudWatchPusher
         }
     }
 
-    private async Task SetUpLogStreamAsync(CancellationToken cancellationToken)
-    {
-        var logGroupName = _options.LogGroup;
-
-        var logGroupResponse = await _client.DescribeLogGroupsAsync(new DescribeLogGroupsRequest
-        {
-            LogGroupNamePrefix = logGroupName,
-        }, cancellationToken).ConfigureAwait(false);
-        if (!IsSuccessStatusCode(logGroupResponse))
-        {
-            _logger.LogError($"DescribeLogGroups {logGroupName} returned status: {logGroupResponse.HttpStatusCode}");
-        }
-
-        if (!logGroupResponse.LogGroups.Any(x => string.Equals(x.LogGroupName, logGroupName, StringComparison.Ordinal)))
-        {
-            var createGroupResponse = await _client.CreateLogGroupAsync(new CreateLogGroupRequest
-            {
-                LogGroupName = logGroupName
-            }, cancellationToken).ConfigureAwait(false);
-            if (!IsSuccessStatusCode(logGroupResponse))
-            {
-                _logger.LogError($"CreateLogGroup {logGroupName} returned status: {logGroupResponse.HttpStatusCode}");
-            }
-        }
-
-        var currentStreamName = "opentelementry-metrics-emf-" + Guid.NewGuid().ToString();
-
-        var streamResponse = await _client.CreateLogStreamAsync(new CreateLogStreamRequest
-        {
-            LogGroupName = logGroupName,
-            LogStreamName = currentStreamName
-        }, cancellationToken).ConfigureAwait(false);
-        if (!IsSuccessStatusCode(logGroupResponse))
-        {
-            _logger.LogError($"CreateLogStream {logGroupName} returned status: {logGroupResponse.HttpStatusCode}");
-        }
-
-        _putLogEventsRequest.LogStreamName = currentStreamName;
-        _putLogEventsRequest.SequenceToken = null;
-    }
-
     private async Task SendMessagesAsync(CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(_putLogEventsRequest.LogStreamName))
@@ -146,6 +102,7 @@ public class CloudWatchPusher
         {
             try
             {
+                CloudWatchEmfMetricExporterEventSource.Log.SendingCloudWatchLogEvents(_putLogEventsRequest.LogEvents.Count, _putLogEventsRequest.LogGroupName, _putLogEventsRequest.LogStreamName);
                 var response = await _client.PutLogEventsAsync(_putLogEventsRequest, cancellationToken).ConfigureAwait(false);
                 _putLogEventsRequest.SequenceToken = response.NextSequenceToken;
                 _putLogEventsRequest.LogEvents.Clear();
@@ -153,20 +110,67 @@ public class CloudWatchPusher
             }
             catch (InvalidSequenceTokenException ex)
             {
-                _logger.LogError(ex, "The NextSequenceToken is invalid based on the last send message. Creating a new log stream.");
+                CloudWatchEmfMetricExporterEventSource.Log.CloudWatchLogsApiException(nameof(_client.PutLogEventsAsync), ex);
+                // The NextSequenceToken is invalid based on the last send message. Creating a new log stream.
                 await SetUpLogStreamAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (ResourceNotFoundException ex)
             {
-                _logger.LogError(ex, "The specified log stream does not exist. Creating a new log stream.");
+                CloudWatchEmfMetricExporterEventSource.Log.CloudWatchLogsApiException(nameof(_client.PutLogEventsAsync), ex);
+                // The specified log stream does not exist. Creating a new log stream.
                 await SetUpLogStreamAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unhandled exception calling PutLogEventsAsync");
+                CloudWatchEmfMetricExporterEventSource.Log.CloudWatchLogsApiException(nameof(_client.PutLogEventsAsync), ex);
                 await Task.Delay(Math.Max(100, DateTime.UtcNow.Second * 10), cancellationToken); // backoff a bit
             }
         }
+        if (cancellationToken.IsCancellationRequested && _putLogEventsRequest.LogEvents.Count > 0)
+        {
+            throw new TimeoutException($"Timeout attempting to call ${nameof(_client.PutLogEventsAsync)}.");
+        }
+    }
+
+    private async Task SetUpLogStreamAsync(CancellationToken cancellationToken)
+    {
+        var logGroupName = _options.LogGroup;
+
+        var logGroupResponse = await _client.DescribeLogGroupsAsync(new DescribeLogGroupsRequest
+        {
+            LogGroupNamePrefix = logGroupName,
+        }, cancellationToken).ConfigureAwait(false);
+        if (!IsSuccessStatusCode(logGroupResponse))
+        {
+            CloudWatchEmfMetricExporterEventSource.Log.CloudWatchLogsApiError(nameof(_client.DescribeLogGroupsAsync), logGroupName, logGroupResponse.HttpStatusCode);
+        }
+
+        if (!logGroupResponse.LogGroups.Any(x => string.Equals(x.LogGroupName, logGroupName, StringComparison.Ordinal)))
+        {
+            var createGroupResponse = await _client.CreateLogGroupAsync(new CreateLogGroupRequest
+            {
+                LogGroupName = logGroupName
+            }, cancellationToken).ConfigureAwait(false);
+            if (!IsSuccessStatusCode(createGroupResponse))
+            {
+                CloudWatchEmfMetricExporterEventSource.Log.CloudWatchLogsApiError(nameof(_client.CreateLogGroupAsync), logGroupName, createGroupResponse.HttpStatusCode);
+            }
+        }
+
+        var currentStreamName = "opentelementry-metrics-emf-" + Guid.NewGuid().ToString();
+
+        var streamResponse = await _client.CreateLogStreamAsync(new CreateLogStreamRequest
+        {
+            LogGroupName = logGroupName,
+            LogStreamName = currentStreamName
+        }, cancellationToken).ConfigureAwait(false);
+        if (!IsSuccessStatusCode(streamResponse))
+        {
+            CloudWatchEmfMetricExporterEventSource.Log.CloudWatchLogsApiError(nameof(_client.CreateLogStreamAsync), currentStreamName, streamResponse.HttpStatusCode);
+        }
+
+        _putLogEventsRequest.LogStreamName = currentStreamName;
+        _putLogEventsRequest.SequenceToken = null;
     }
 
     private static bool IsSuccessStatusCode(AmazonWebServiceResponse serviceResponse) => (int)serviceResponse.HttpStatusCode >= 200 && (int)serviceResponse.HttpStatusCode <= 299;

@@ -10,7 +10,6 @@ internal class MetricDirective
 {
     public MetricDirective()
     {
-        //Namespace = Constants.DEFAULT_NAMESPACE;
         Metrics = new List<MetricDefinition>();
         DimensionSets = new List<DimensionSet>();
     }
